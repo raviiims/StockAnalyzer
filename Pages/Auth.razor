@@ -1,0 +1,51 @@
+@page "/auth"
+@using Microsoft.AspNetCore.Components.Web
+@rendermode @(new InteractiveServerRenderMode())
+@inject IConfiguration Config
+@inject IntradayUpstox.Services.UpstoxService Upstox
+@inject IntradayUpstox.Services.TokenStore TokenStore
+
+<h3>Upstox Authentication</h3>
+
+<p>
+  Click the link below to open Upstox login (it will redirect to the redirect URI and show the code).
+</p>
+
+<p>
+  <a class="btn btn-primary" href="@AuthorizeUrl" target="_blank">Open Upstox Login</a>
+</p>
+
+<hr />
+
+<h5>Paste the authorization <code>code</code> you received here (or copy from the redirect page):</h5>
+<input @bind="authCode" class="form-control" />
+<button class="btn btn-success mt-2" @onclick="ExchangeCode">Exchange Code for Token</button>
+
+@if (message != null)
+{
+    <div class="alert alert-info mt-2">@message</div>
+}
+
+@code {
+    string authCode = string.Empty;
+    string? message;
+
+    string AuthorizeUrl => Config["Upstox:AuthorizeUrl"]?
+        .Replace("{client_id}", Config["Upstox:ClientId"] ?? "")
+        .Replace("{redirect_uri}", Config["Upstox:RedirectUri"] ?? "") ?? "";
+
+    async Task ExchangeCode()
+    {
+        if (string.IsNullOrWhiteSpace(authCode)) 
+        { 
+            message = "Enter the code."; 
+            StateHasChanged();
+            return; 
+        }
+        message = null;
+        StateHasChanged();
+        var ok = await Upstox.ExchangeCodeForTokenAsync(authCode.Trim());
+        message = ok ? "Token obtained and saved (in-memory)." : "Failed to exchange code. Check logs.";
+        StateHasChanged();
+    }
+}

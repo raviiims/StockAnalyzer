@@ -1,0 +1,92 @@
+@page "/intraday"
+@using Microsoft.AspNetCore.Components.Web
+@rendermode @(new InteractiveServerRenderMode())
+@inject IntradayUpstox.Services.UpstoxService Upstox
+@inject IntradayUpstox.Services.TokenStore TokenStore
+
+<h3>Intraday Dashboard (Real Upstox data)</h3>
+
+@if (!TokenStore.HasToken)
+{
+    <div class="alert alert-warning">No access token found. Go to <a href="/auth">Auth</a> and get a token.</div>
+}
+else
+{
+    <div class="mb-2">
+        <input @bind="instrument" class="form-control" placeholder="Enter instrument (e.g. NSE_EQ|INE848E01016)" />
+        <button class="btn btn-primary mt-2" @onclick="Load">Load Candles</button>
+    </div>
+
+    @if (loading) { <p>Loading...</p> }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger mt-2">@errorMessage</div>
+    }
+    else if (candles != null)
+    {
+        @if (candles.Count == 0)
+        {
+            <div class="alert alert-warning mt-2">No candles found. Check the console for API error details.</div>
+        }
+        else
+        {
+            <p>Candles: @candles.Count</p>
+            <p>VWAP: @vwap</p>
+            <p>RSI: @rsi</p>
+            <p>Score: <b>@score</b></p>
+            <table class="table table-sm">
+                <thead><tr><th>Time</th><th>Open</th><th>High</th><th>Low</th><th>Close</th><th>Volume</th></tr></thead>
+                <tbody>
+                @foreach(var c in candles)
+                {
+                    <tr><td>@c.Time.ToLocalTime()</td><td>@c.Open</td><td>@c.High</td><td>@c.Low</td><td>@c.Close</td><td>@c.Volume</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+    }
+}
+
+@code {
+    string instrument = "NSE_EQ|INE848E01016";
+    List<IntradayUpstox.Services.CandleDto>? candles;
+    bool loading = false;
+    decimal vwap=0; decimal rsi=0; int score=0;
+    string? errorMessage;
+
+    async Task Load()
+    {
+        loading = true;
+        errorMessage = null;
+        StateHasChanged();
+        try
+        {
+            candles = await Upstox.GetIntradayCandlesAsync(instrument, "1minute");
+            if(!candles.Any())
+            {
+                candles = await Upstox.GetDailyCandlesAsync(instrument, DateTime.UtcNow.AddDays(-3), DateTime.UtcNow);
+            }
+            if (candles != null && candles.Count>0)
+            {
+                vwap = Upstox.FeatureService.ComputeVwap(candles);
+                var closes = candles.Select(x=>x.Close).ToList();
+                var rs = Upstox.FeatureService.RSI(closes);
+                rsi = rs.Count>0? rs.Last():0;
+                score = Upstox.FeatureService.ScoreStock(candles);
+            }
+            else if (candles != null && candles.Count == 0)
+            {
+                errorMessage = "No data returned. Check console for API error details. Verify the instrument key format (e.g., NSE_EQ|INE848E01016).";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+}
