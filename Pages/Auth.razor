@@ -1,18 +1,27 @@
 @page "/auth"
 @using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components
 @rendermode @(new InteractiveServerRenderMode())
 @inject IConfiguration Config
 @inject IntradayUpstox.Services.UpstoxService Upstox
 @inject IntradayUpstox.Services.TokenStore TokenStore
+@inject NavigationManager Navigation
 
 <h3>Upstox Authentication</h3>
+
+@if (TokenStore.HasToken)
+{
+    <div class="alert alert-success">
+        Access token received! You are authenticated and can now use the application.
+    </div>
+}
 
 <p>
   Click the link below to open Upstox login (it will redirect to the redirect URI and show the code).
 </p>
 
 <p>
-  <a class="btn btn-primary" href="@AuthorizeUrl" target="_blank">Open Upstox Login</a>
+  <a class="btn btn-primary" href="@AuthorizeUrl" target="_self">Open Upstox Login</a>
 </p>
 
 <hr />
@@ -34,6 +43,16 @@
         .Replace("{client_id}", Config["Upstox:ClientId"] ?? "")
         .Replace("{redirect_uri}", Config["Upstox:RedirectUri"] ?? "") ?? "";
 
+    protected override void OnInitialized()
+    {
+        // Check if there's a code in the query string
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query).TryGetValue("code", out var codeValue) && !string.IsNullOrEmpty(codeValue))
+        {
+            authCode = codeValue.ToString();
+        }
+    }
+
     async Task ExchangeCode()
     {
         if (string.IsNullOrWhiteSpace(authCode)) 
@@ -45,7 +64,18 @@
         message = null;
         StateHasChanged();
         var ok = await Upstox.ExchangeCodeForTokenAsync(authCode.Trim());
-        message = ok ? "Token obtained and saved (in-memory)." : "Failed to exchange code. Check logs.";
-        StateHasChanged();
+        if (ok)
+        {
+            message = "Token obtained and saved successfully!";
+            StateHasChanged();
+            // Redirect to intraday after a short delay
+            await Task.Delay(1000);
+            Navigation.NavigateTo("/intraday");
+        }
+        else
+        {
+            message = "Failed to exchange code. Check logs.";
+            StateHasChanged();
+        }
     }
 }

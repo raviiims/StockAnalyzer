@@ -27,14 +27,60 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseRouting();
 
-app.MapGet("/auth/callback", (Microsoft.AspNetCore.Http.HttpContext ctx) =>
+app.MapGet("/auth/callback", async (Microsoft.AspNetCore.Http.HttpContext ctx, IServiceProvider serviceProvider) =>
 {
     var code = ctx.Request.Query["code"].ToString();
-    return Results.Text($@"<html><body>
-        <h3>Authorization code</h3>
-        <p>Code: <b>{code}</b></p>
-        <p>Copy this code and paste it into the Blazor app <a href=""/"">home</a>.</p>
-        </body></html>", "text/html");
+    
+    if (string.IsNullOrEmpty(code))
+    {
+        return Results.Text(@"<html><body>
+            <h3>Error</h3>
+            <p>No authorization code received.</p>
+            <p><a href=""/"">Return to home</a></p>
+            </body></html>", "text/html");
+    }
+
+    // Create a scope to resolve scoped services
+    using var scope = serviceProvider.CreateScope();
+    var upstoxService = scope.ServiceProvider.GetRequiredService<UpstoxService>();
+    
+    var success = await upstoxService.ExchangeCodeForTokenAsync(code);
+    
+    if (success)
+    {
+        // Return HTML page that closes parent tab (the /auth page) and redirects current tab to /intraday
+        return Results.Text(@"<html><head><title>Authentication Successful</title></head><body>
+            <script>
+                (function() {
+                    // Close the parent tab (the /auth page that opened this login tab)
+                    if (window.opener && !window.opener.closed) {
+                        try {
+                            window.opener.close();
+                        } catch (e) {
+                            console.log('Could not close parent window:', e);
+                        }
+                    }
+                    
+                    // Small delay to ensure parent closes, then redirect this tab to /intraday
+                    setTimeout(function() {
+                        window.location.href = '/intraday';
+                    }, 100);
+                })();
+            </script>
+            <h3>Authentication Successful!</h3>
+            <p>Token received and saved. Closing parent tab and redirecting...</p>
+            <p>If you don't get redirected, <a href=""/intraday"">click here</a>.</p>
+            </body></html>", "text/html");
+    }
+    else
+    {
+        return Results.Text(@"<html><body>
+            <h3>Error</h3>
+            <p>Failed to exchange authorization code for access token.</p>
+            <p>Please try again.</p>
+            <p><a href=""/"">Return to home</a></p>
+            </body></html>", "text/html");
+    }
 });
 
 app.MapBlazorHub();
